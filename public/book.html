@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Book Records</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+
+<div class="container py-4">
+  <a href="books.html" class="btn btn-secondary mb-3">&larr; Back to Books</a>
+  <div class="d-flex justify-content-between align-items-center">
+    <h3 id="bookTitle">Book</h3>
+    <button class="btn btn-danger" onclick="logout()">Logout</button>
+  </div>
+
+  <!-- Summary -->
+  <div class="d-flex gap-3 my-3">
+    <div class="alert alert-success mb-0 p-2 px-3">Cash In: ₹<span id="cashIn">0</span></div>
+    <div class="alert alert-danger mb-0 p-2 px-3">Cash Out: ₹<span id="cashOut">0</span></div>
+    <div class="alert alert-info mb-0 p-2 px-3">Total: ₹<span id="totalAmount">0</span></div>
+  </div>
+
+  <!-- Record Form -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5>Add / Update Record</h5>
+      <form id="recordForm">
+        <input type="hidden" id="recordId" />
+        <div class="row g-2">
+          <div class="col-md-2">
+            <label>Type</label>
+            <select id="type" class="form-select">
+              <option value="in">In</option>
+              <option value="out">Out</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label>Amount</label>
+            <input type="number" id="amount" class="form-control" required>
+          </div>
+          <div class="col-md-3">
+            <label>Date</label>
+            <input type="date" id="date" class="form-control" required>
+          </div>
+          <div class="col-md-3">
+            <label>Category</label>
+            <select id="category" class="form-select"></select>
+          </div>
+          <div class="col-md-12 mt-2">
+            <label>Remarks</label>
+            <input type="text" id="remarks" class="form-control">
+          </div>
+          <div class="col-md-12 mt-3">
+            <button type="submit" class="btn btn-primary">Save</button>
+            <button type="button" class="btn btn-secondary" onclick="resetForm()">Clear</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Record List -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5>Records</h5>
+      <table class="table table-bordered table-striped">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Amount</th>
+            <th>Category</th>
+            <th>Remarks</th>
+            <th width="18%">Action</th>
+          </tr>
+        </thead>
+        <tbody id="recordList"></tbody>
+      </table>
+      <div class="d-flex justify-content-between mt-3">
+        <button class="btn btn-primary" id="prevBtn" style="display:none;">Prev</button>
+        <span id="pageInfo" class="fw-bold"></span>
+        <button class="btn btn-primary" id="nextBtn" style="display:none;">Next</button>
+    </div>
+    </div>
+  </div>
+
+  <!-- Category List -->
+  <div class="card">
+    <div class="card-body">
+      <h5>Categories</h5>
+      <div class="input-group mb-3">
+        <input type="text" id="newCategory" class="form-control" placeholder="New category name">
+        <button class="btn btn-success" onclick="addCategory()">Add</button>
+      </div>
+      <ul id="categoryList" class="list-group"></ul>
+    </div>
+  </div>
+</div>
+
+<script>
+const apiBase = "http://localhost:4003/api";
+const token = localStorage.getItem("cashbook_token");
+if (!token) location.href = "index.html";
+
+const params = new URLSearchParams(window.location.search);
+const bookId = params.get("id");
+let categoryMap = {};
+
+async function loadBookData() {
+  await loadCategories();
+  await loadRecords();
+}
+
+let pageNumber = 1;
+let totalPages = 1;
+
+async function loadRecords() {
+  const res = await fetch(`${apiBase}/books/${bookId}/records?page=${pageNumber}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await res.json();
+
+  document.getElementById("cashIn").innerText = data.totals.cashIn;
+  document.getElementById("cashOut").innerText = data.totals.cashOut;
+  document.getElementById("totalAmount").innerText = data.totals.totalAmount;
+
+  const tbody = document.getElementById("recordList");
+  tbody.innerHTML = "";
+
+  if (!data.data.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">No records found</td></tr>`;
+    return;
+  }
+
+  totalPages = data.pagination.totalPages;
+
+  data.data.forEach(r => {
+    const badge = r.type === "in" ? "success" : "danger";
+    const catName = r.category_id ? (categoryMap[r.category_id] || "Unknown") : "-";
+
+    tbody.innerHTML += `
+      <tr>
+        <td>${new Date(r.date).toLocaleDateString()}</td>
+        <td><span class="badge bg-${badge}">${r.type}</span></td>
+        <td>₹${r.amount}</td>
+        <td>${catName}</td>
+        <td>${r.remarks || ""}</td>
+        <td>
+          <button class="btn btn-sm btn-warning" onclick="editRecord('${r._id}')">Edit</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteRecord('${r._id}')">Delete</button>
+        </td>
+      </tr>
+    `;
+  });
+
+  // === Pagination visibility ===
+  document.getElementById("pageInfo").innerText = `Page ${pageNumber} / ${totalPages}`;
+
+  document.getElementById("prevBtn").style.display = pageNumber > 1 ? "block" : "none";
+  document.getElementById("nextBtn").style.display = pageNumber < totalPages ? "block" : "none";
+}
+
+// Pagination button actions
+document.getElementById("prevBtn").addEventListener("click", () => {
+  if (pageNumber > 1) {
+    pageNumber--;
+    loadRecords();
+  }
+});
+
+document.getElementById("nextBtn").addEventListener("click", () => {
+  if (pageNumber < totalPages) {
+    pageNumber++;
+    loadRecords();
+  }
+});
+
+
+async function loadCategories() {
+  const res = await fetch(`${apiBase}/books/${bookId}/categories`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json();
+  categoryMap = {};
+  const select = document.getElementById("category");
+  const list = document.getElementById("categoryList");
+
+  select.innerHTML = "<option value=''>-- None --</option>";
+  list.innerHTML = "";
+
+  data.data.forEach(cat => {
+    categoryMap[cat._id] = cat.name;
+    select.innerHTML += `<option value="${cat._id}">${cat.name}</option>`;
+    list.innerHTML += `
+      <li class="list-group-item d-flex justify-content-between align-items-center">
+        ${cat.name}
+        <div>
+          <button class="btn btn-sm btn-warning" onclick="editCategory('${cat._id}', '${cat.name}')">Edit</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteCategory('${cat._id}')">Delete</button>
+        </div>
+      </li>`;
+  });
+}
+
+// Record CRUD
+document.getElementById("recordForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const id = document.getElementById("recordId").value;
+  const payload = {
+    type: document.getElementById("type").value,
+    amount: parseFloat(document.getElementById("amount").value),
+    date: document.getElementById("date").value,
+    remarks: document.getElementById("remarks").value,
+    category_id: document.getElementById("category").value || null,
+  };
+
+  const url = id 
+    ? `${apiBase}/books/${bookId}/records/${id}`
+    : `${apiBase}/books/${bookId}/records`;
+  const method = id ? "PUT" : "POST";
+
+  await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+
+  resetForm();
+  loadRecords();
+});
+
+async function editRecord(id) {
+  const res = await fetch(`${apiBase}/books/${bookId}/records`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json();
+  const rec = data.data.find(x => x._id === id);
+  if (!rec) return;
+
+  document.getElementById("recordId").value = rec._id;
+  document.getElementById("type").value = rec.type;
+  document.getElementById("amount").value = rec.amount;
+  document.getElementById("date").value = rec.date.split("T")[0];
+  document.getElementById("remarks").value = rec.remarks || "";
+  document.getElementById("category").value = rec.category_id || "";
+}
+
+async function deleteRecord(id) {
+  if (!confirm("Delete this record?")) return;
+  await fetch(`${apiBase}/books/${bookId}/records/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  loadRecords();
+}
+
+function resetForm() {
+  document.getElementById("recordForm").reset();
+  document.getElementById("recordId").value = "";
+}
+
+// Category CRUD
+async function addCategory() {
+  const name = document.getElementById("newCategory").value.trim();
+  if (!name) return alert("Enter category name");
+  await fetch(`${apiBase}/books/${bookId}/categories`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name }),
+  });
+  document.getElementById("newCategory").value = "";
+  loadCategories();
+}
+
+async function editCategory(id, oldName) {
+  const name = prompt("Edit category:", oldName);
+  if (!name) return;
+  await fetch(`${apiBase}/books/${bookId}/categories/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name }),
+  });
+  loadCategories();
+}
+
+async function deleteCategory(id) {
+  if (!confirm("Delete this category?")) return;
+  await fetch(`${apiBase}/books/${bookId}/categories/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  loadCategories();
+}
+
+function logout() {
+  localStorage.removeItem("cashbook_token");
+  location.href = "index.html";
+}
+
+loadBookData();
+</script>
+</body>
+</html>

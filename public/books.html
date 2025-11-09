@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Books</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center">
+    <h3>Books</h3>
+    <button class="btn btn-danger" onclick="logout()">Logout</button>
+  </div>
+
+  <button class="btn btn-primary my-3" onclick="addBook()">Add Book</button>
+
+  <table class="table table-bordered table-striped">
+  <thead class="table-dark">
+    <tr>
+      <th>Title</th>
+      <th>Description</th>
+      <th width="25%">Actions</th>
+    </tr>
+  </thead>
+  <tbody id="bookList"></tbody>
+</table>
+
+<div class="d-flex justify-content-between align-items-center mt-3">
+  <button id="prevBtn" class="btn btn-secondary btn-sm">Prev</button>
+  <span id="pageInfo" class="fw-bold"></span>
+  <button id="nextBtn" class="btn btn-secondary btn-sm">Next</button>
+</div>
+
+</div>
+
+<script>
+const apiBase = "http://localhost:4003/api";
+const token = localStorage.getItem("cashbook_token");
+
+if (!token) location.href = "index.html";
+
+let currentPage = 1;
+const limit = 10;
+
+async function fetchBooks(page = 1) {
+  const res = await fetch(`${apiBase}/books?page=${page}&limit=${limit}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  const data = await res.json();
+  const tbody = document.getElementById("bookList");
+  const pageInfo = document.getElementById("pageInfo");
+  const prevBtn = document.getElementById("prevBtn");
+  const nextBtn = document.getElementById("nextBtn");
+
+  tbody.innerHTML = "";
+
+  if (!data.data.length) {
+    tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted">No books found</td></tr>`;
+    return;
+  }
+
+  data.data.forEach(book => {
+    tbody.innerHTML += `
+      <tr>
+        <td>${book.title}</td>
+        <td>${book.description || ''}</td>
+        <td>
+          <button class="btn btn-sm btn-success" onclick="openBook('${book._id}')">Open</button>
+          <button class="btn btn-sm btn-warning" onclick="editBook('${book._id}', '${book.title}', '${book.description || ''}')">Edit</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteBook('${book._id}')">Delete</button>
+        </td>
+      </tr>`;
+  });
+
+  // Pagination UI
+  currentPage = data.pagination.page;
+  pageInfo.innerText = `Page ${data.pagination.page} of ${data.pagination.totalPages}`;
+
+  prevBtn.disabled = (currentPage === 1);
+  nextBtn.disabled = (currentPage === data.pagination.totalPages);
+
+  prevBtn.onclick = () => fetchBooks(currentPage - 1);
+  nextBtn.onclick = () => fetchBooks(currentPage + 1);
+}
+
+// first load
+fetchBooks();
+
+
+async function addBook() {
+  const title = prompt("Enter book title:");
+  if (!title) return;
+  const description = prompt("Enter description:");
+  await fetch(`${apiBase}/books`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ title, description }),
+  });
+  fetchBooks();
+}
+
+async function editBook(id, title, desc) {
+  const newTitle = prompt("Edit book title:", title);
+  if (!newTitle) return;
+  const newDesc = prompt("Edit description:", desc);
+  await fetch(`${apiBase}/books/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ title: newTitle, description: newDesc }),
+  });
+  fetchBooks();
+}
+
+async function deleteBook(id) {
+  if (!confirm("Are you sure to delete?")) return;
+  await fetch(`${apiBase}/books/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  fetchBooks();
+}
+
+function openBook(id) {
+  window.location.href = `book.html?id=${id}`;
+}
+
+function logout() {
+  localStorage.removeItem("cashbook_token");
+  location.href = "index.html";
+}
+
+fetchBooks();
+</script>
+</body>
+</html>
